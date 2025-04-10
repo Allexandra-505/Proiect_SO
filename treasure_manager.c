@@ -1,6 +1,6 @@
 #include <stdio.h>
 int main()
 {
-    printf("SO\n");
+    printf("MERGEEEEE!!!\n");
     return 0;
 }
