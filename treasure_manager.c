@@ -185,26 +185,170 @@ int add_treasure(const char* hunt_id) {
     printf("Treasure added successfully with ID %d\n", treasure.id);
     return 0;
 }
+int list_treasures(const char* hunt_id) {//primeste ca param un string care reprez
+    //numele sesiunii de vanatoare,directorul unde sunt stocate
+    char treasures_path[MAX_PATH];//buffer care contine calea comppleta catre fisierul unde sunt salvate 
+    //toate comorile despre acel hunt 
+    struct stat st;//structura pt a obt info despre fisier
+    build_path(treasures_path, hunt_id, "treasures");//crfeeaza calea catre fisierul de comori
+    if (stat(treasures_path, &st) == -1) {//verif daca exista si preia info despre el
+        perror("Could not access treasures file");
+        return -1;
+    }
+    int fd = open(treasures_path, O_RDONLY);//deschide fisierul treasure pt citire
+    if (fd == -1) {
+        perror("Failed to open treasures file");
+        return -1;
+    }
+
+    printf("Hunt: %s\n", hunt_id);//afiseaza informatiile
+    printf("Total File Size: %ld bytes\n", st.st_size);//afiseaza dimensiunea totala in bytes
+
+    char time_str[64];
+    format_time(st.st_mtime, time_str, sizeof(time_str));//st.st_mtime e timpul ultimei modificari
+    //si il converteste intr-un string
+    printf("Last Modified: %s\n", time_str);//af data ultimei modificari
+    printf("Treasures:\n");
+    Treasure t;//o structura pt a citi fiecare comoara din fisier
+    while (read(fd, &t, sizeof(Treasure)) == sizeof(Treasure)) {//citeste o structura de fisier pana la final
+        printf("  ID: %d | User: %s | Lat: %.5f | Long: %.5f | Value: %d\n",
+               t.id, t.username, t.latitude, t.longitude, t.value);
+    }
+    close(fd);
+    log_action(hunt_id, "Listed all treasures.");//inregistreaza in jurnal ca toate comorile au fost listate
+    return 0;
+}
+
+// Vizualizeaza o comoara după id
+int view_treasure(const char* hunt_id, int treasure_id) {//numele dir in care se afla fisierul treasure,
+    //id-ul comorii pe care vrem sa o cautam si sa o vedem
+    char treasures_path[MAX_PATH];//buffer in c are constr calea completa catre fisierul de comori
+    build_path(treasures_path, hunt_id, "treasures");//combina numele dir cu treasure  
+
+    int fd = open(treasures_path, O_RDONLY);//deschide fisierul pt citire
+    if (fd == -1) {
+        perror("Could not open treasures file");
+        return -1;
+    }
+
+    Treasure t;//structura pt a citi pe rand fiecare comoara
+    while (read(fd, &t, sizeof(Treasure)) == sizeof(Treasure)) {//read citeste o comoara,un bloc de dim sizeof..,
+        //din fisier in structura t
+        if (t.id == treasure_id) {//daca id-ul comorii citite e egal cu id-ul cautat
+            printf("Treasure ID: %d\nUser: %s\nLatitude: %.5f\nLongitude: %.5f\nClue: %s\nValue: %d\n",
+                   t.id, t.username, t.latitude, t.longitude, t.clue, t.value);
+            close(fd);//daca comoara este gasita afiseaza info din structura
+            char log_msg[MAX_LOG_ENTRY];
+            sprintf(log_msg, "Viewed treasure ID %d", treasure_id);
+            log_action(hunt_id, log_msg);//se construieste un mesaj de log apoi se apeleaza log_action pt a salva 
+            //in jurnalul vanatorii aceasta actiune
+            return 0;
+        }
+    }
+
+    printf("Treasure with ID %d not found.\n", treasure_id);
+    close(fd);
+    return -1;
+}
+
+// Sterge o comoara după id
+int remove_treasure(const char* hunt_id, int treasure_id) {
+    char path[MAX_PATH];//calea completa catre fis de comori
+    char temp_path[MAX_PATH];//fis temporar pt a rescrie comorile fara cea stersa
+    build_path(path, hunt_id, "treasures");//concateneaza numele dir
+    build_path(temp_path, hunt_id, "temp");//concateneaza numele fis 
+
+    int fd = open(path, O_RDONLY);//fis de comori pt citire
+    int temp_fd = open(temp_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd == -1 || temp_fd == -1) {//fis temorar se deschide pt scriere,se creeaza
+        //daca nu exista si se goleste daca exista deja 
+        perror("Failed to open files");
+        return -1;
+    }
+
+    Treasure t;
+    int found = 0;
+    while (read(fd, &t, sizeof(Treasure)) == sizeof(Treasure)) {//citeste fiecare comoara din fis original
+        if (t.id != treasure_id) {//daca nu e cel cautat,comoara se scrie in fis temporar
+            write(temp_fd, &t, sizeof(Treasure));//daca da at nu se scrie,o stergem si marcam ca a fost found=1
+        } else {
+            found = 1;
+        }
+    }
+
+    close(fd);
+    close(temp_fd);
+
+    if (!found) {//daca nu a fost gasita 
+        printf("Treasure ID %d not found.\n", treasure_id);
+        remove(temp_path);//stergem fis temorar
+        return -1;
+    }
+
+    remove(path);//stergem fis original
+    rename(temp_path, path);//se redenumeste fis temporar in locul lui acum fis treasure contine comorile
+    //mai purin cea stearsa
+
+    char log_msg[MAX_LOG_ENTRY];//se construieste un mesaj de jurnal
+    sprintf(log_msg, "Removed treasure ID %d", treasure_id);
+    log_action(hunt_id, log_msg);////se apeleaza functia log_action care salveaza actiunea 
+    //intr-un fisier logged_hunt
+
+    printf("Treasure %d removed successfully.\n", treasure_id);
+    return 0;
+}
+
+// Sterge complet o vanatoare de comori (directorul)
+int remove_hunt(const char* hunt_id) {
+    char treasures_path[MAX_PATH], log_path[MAX_PATH];//calea completa catre fis cu comori
+    build_path(treasures_path, hunt_id, "treasures");//calea completa catre fis de loguri
+    build_path(log_path, hunt_id, "logged_hunt");//concateneaza id-ul vanatorii cu numele fis respectiv
+    //pt a obt caile complete
+
+    remove(treasures_path);//sterge fis treasure si logged_hunt de pe disc
+    remove(log_path);
+
+    if (rmdir(hunt_id) == -1) {//sterge directorul asociat vanatorii,hunt_id
+        perror("Failed to remove hunt directory");
+        return -1;
+    }
+
+    printf("Hunt '%s' deleted successfully.\n", hunt_id);
+    return 0;
+}
+
+// Functia principala care interpreteaza comenzile din linia de comanda
 int main(int argc, char *argv[]) {
-    if (argc < 2) {//daca nr de arg <2 at prog a fost lansat fara param sau cu less
+    if (argc < 2) {
         printf("Operations:\n");
-        printf("  add <hunt_id>\n");//afis un mesaj cu operatiile disponibile
+        printf("  add <hunt_id>\n");
+        printf("  list <hunt_id>\n");
+        printf("  view <hunt_id> <treasure_id>\n");
+        printf("  remove_treasure <hunt_id> <treasure_id>\n");
+        printf("  remove_hunt <hunt_id>\n");
         return 1;
     }
 
-    if (strcmp(argv[1], "add") == 0) {//daca primul argumeste este add,daca e adv at continua 
-        //cu adaugarea unuei comori
-        if (argc < 3) {
-            printf("Usage: %s add <hunt_id>\n", argv[0]);
-            return 1;
-        }
-        return add_treasure(argv[2]); 
+    if (strcmp(argv[1], "add") == 0 && argc >= 3) {//verifica daca primul arg este comanda add,si daca 
+        //un al doilea arg este necesat pt a adauga o comoara
+        return add_treasure(argv[2]);//daca este ok trecem id-ul vanatorii
+
+    } else if (strcmp(argv[1], "list") == 0 && argc >= 3) {
+        return list_treasures(argv[2]);
+
+    } else if (strcmp(argv[1], "view") == 0 && argc >= 4) {
+        return view_treasure(argv[2], atoi(argv[3]));
+
+    } else if (strcmp(argv[1], "remove_treasure") == 0 && argc >= 4) {
+        return remove_treasure(argv[2], atoi(argv[3]));//daca este ok convertim id-ul la int comorii 
+
+    } else if (strcmp(argv[1], "remove_hunt") == 0 && argc >= 3) {
+        return remove_hunt(argv[2]);
+
     } else {
-        printf("Unknown operation: %s\n", argv[1]);
-        printf("Only 'add' and 'list' are implemented.\n");
+        printf("Unknown command.\n");
         return 1;
     }
 
     return 0;
 }
-
