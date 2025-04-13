@@ -29,8 +29,6 @@ int list_treasures(const char* hunt_id);
 int view_treasure(const char* hunt_id, int treasure_id);
 int remove_treasure(const char* hunt_id, int treasure_id);
 int remove_hunt(const char* hunt_id);
-int create_hunt_directory(const char* hunt_id);
-int create_logged_hunt(const char* hunt_id);
 
 void build_path(char* dest, const char* dir, const char* file) {
     strcpy(dest, dir);
@@ -121,20 +119,6 @@ void log_action(const char* hunt_id, const char* action) {//numele dir,un mesaj 
 
     create_symlink(hunt_id);
 }
-int create_hunt_directory(const char* hunt_id) {//primeste un param un sir de carac,numele vanatorii
-    char dir_path[MAX_PATH];//variabila de tip sir de carac utilizata pt a stoca calea catre fisierul creat
-    //MAX_PATH e o constanta care arata dim max a unui sir de carac
-    strcpy(dir_path, hunt_id);//copiezi hunt_it in dir_pat
-    struct stat st = {0};//creeam o strcutura de tip stat numita st si initializam toti membrii cu 0
-    if (stat(dir_path, &st) == -1) {//verificam daca dir_path exista deja ,cu stat incercam sa obt info despre fisier/dir
-        if (mkdir(dir_path, 0755) == -1) {//daca nu exista il creeam si ii dam permisuni
-            perror("Failed to create hunt directory");
-            return -1;
-        }
-    }
-    return 0;
-}
-
 int add_treasure(const char* hunt_id) {
     //folosim id-ul pt a determina directorul in care se salveaza inform vanatorii,0 succes,-1 eroare
     char dir_path[MAX_PATH];//stocheaza calea catre director
@@ -377,13 +361,6 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(argv[1], "remove_hunt") == 0 && argc >= 3) {
         return remove_hunt(argv[2]);
 
-    } else if (strcmp(argv[1], "create_hunt") == 0 && argc >= 3) {
-        if (create_hunt_directory(argv[2]) == 0) {
-            printf("Hunt directory '%s' created.\n", argv[2]);
-    } else {
-            printf("Failed to create hunt directory '%s'.\n", argv[2]);
-        }
-        return 0; 
     } else {
         printf("Unknown command.\n");
         return 1;
