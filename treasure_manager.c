@@ -145,7 +145,7 @@ int add_treasure(const char* hunt_id) {
 
     printf("Enter longitude: ");
     scanf("%lf", &treasure.longitude);
-
+    
     printf("Enter clue (max 1023 chars): ");
     getchar(); // consume newline
     fgets(treasure.clue, MAX_CLUE, stdin);
@@ -155,7 +155,7 @@ int add_treasure(const char* hunt_id) {
 
     printf("Enter value: ");//colectarea comorii
     scanf("%d", &treasure.value);
-
+   
     if (lseek(fd, 0, SEEK_END) == -1) {//deplaseaza pointerul de fisier la sfarsit pt a adauga
         //la finalul fisierului
         perror("Failed to seek to end of file");
