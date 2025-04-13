@@ -12,6 +12,7 @@
 #define MAX_CLUE 1024
 #define MAX_USERNAME 64
 #define MAX_LOG_ENTRY 2048
+#define LOG_FILE "logged_hunt"
 
 typedef struct {
     int id;
@@ -26,13 +27,16 @@ void log_action(const char* hunt_id, const char* action);
 int add_treasure(const char* hunt_id);
 int list_treasures(const char* hunt_id);
 int view_treasure(const char* hunt_id, int treasure_id);
+int remove_treasure(const char* hunt_id, int treasure_id);
+int remove_hunt(const char* hunt_id);
+int create_hunt_directory(const char* hunt_id);
+int create_logged_hunt(const char* hunt_id);
 
 void build_path(char* dest, const char* dir, const char* file) {
     strcpy(dest, dir);
     strcat(dest, "/");
     strcat(dest, file);
 }
-
 void format_time(time_t time_val, char* buffer, size_t buffer_size) {//timpul format
   //  in time_t,un sir de cacartere unde va fi salvat rezultatul,dim max
     struct tm* time_info = localtime(&time_val);//tranf time_val intr-o 
@@ -69,6 +73,23 @@ void format_time(time_t time_val, char* buffer, size_t buffer_size) {//timpul fo
     strcat(buffer, temp);
 }
 
+void create_symlink(const char* hunt_id) {
+    char log_path[MAX_PATH];
+    char link_path[MAX_PATH];
+    
+    build_path(log_path, hunt_id, LOG_FILE); // Calea catre fisierul logged_hunt
+    
+    // Numele link-ului simbolic în directorul curent
+    sprintf(link_path, "%s-%s", LOG_FILE, hunt_id); 
+    
+    // Sterge link-ul dacă există deja
+    unlink(link_path);
+    
+    // Creează link-ul simbolic
+    if (symlink(log_path, link_path) == -1) {
+        perror("Failed to create symbolic link");
+    }
+}
 void log_action(const char* hunt_id, const char* action) {//numele dir,un mesaj care
     //contine actiunea ex: Added treasure ID1
     char log_path[MAX_PATH];//creeaza un buffer pentru calea completa a fisierului logged_hunt
@@ -97,6 +118,21 @@ void log_action(const char* hunt_id, const char* action) {//numele dir,un mesaj 
 
     write(fd, log_entry, strlen(log_entry));//scrie continutul lui log_entry in fisierul deschis
     close(fd);
+
+    create_symlink(hunt_id);
+}
+int create_hunt_directory(const char* hunt_id) {//primeste un param un sir de carac,numele vanatorii
+    char dir_path[MAX_PATH];//variabila de tip sir de carac utilizata pt a stoca calea catre fisierul creat
+    //MAX_PATH e o constanta care arata dim max a unui sir de carac
+    strcpy(dir_path, hunt_id);//copiezi hunt_it in dir_pat
+    struct stat st = {0};//creeam o strcutura de tip stat numita st si initializam toti membrii cu 0
+    if (stat(dir_path, &st) == -1) {//verificam daca dir_path exista deja ,cu stat incercam sa obt info despre fisier/dir
+        if (mkdir(dir_path, 0755) == -1) {//daca nu exista il creeam si ii dam permisuni
+            perror("Failed to create hunt directory");
+            return -1;
+        }
+    }
+    return 0;
 }
 
 int add_treasure(const char* hunt_id) {
@@ -104,7 +140,7 @@ int add_treasure(const char* hunt_id) {
     char dir_path[MAX_PATH];//stocheaza calea catre director
     char treasures_path[MAX_PATH];//calea completa catre fisierul in care sunt salvate comorile
     Treasure treasure;//structura c are cont info despre comoara
-    struct stat st = {0};//strcut stat obt info despre fisiere
+    struct stat st = {0};//struct stat obt info despre fisiere
     char log_message[MAX_LOG_ENTRY];//mesajul de log ce va fi scris in jurnalul actiunilor 
 
     strcpy(dir_path, hunt_id);//copiez id in path pt a indica locul unde sunt salvate fisierele vanatorii
@@ -145,7 +181,7 @@ int add_treasure(const char* hunt_id) {
 
     printf("Enter longitude: ");
     scanf("%lf", &treasure.longitude);
-    
+
     printf("Enter clue (max 1023 chars): ");
     getchar(); // consume newline
     fgets(treasure.clue, MAX_CLUE, stdin);
@@ -209,6 +245,7 @@ int list_treasures(const char* hunt_id) {//primeste ca param un string care repr
     //si il converteste intr-un string
     printf("Last Modified: %s\n", time_str);//af data ultimei modificari
     printf("Treasures:\n");
+
     Treasure t;//o structura pt a citi fiecare comoara din fisier
     while (read(fd, &t, sizeof(Treasure)) == sizeof(Treasure)) {//citeste o structura de fisier pana la final
         printf("  ID: %d | User: %s | Lat: %.5f | Long: %.5f | Value: %d\n",
@@ -218,8 +255,6 @@ int list_treasures(const char* hunt_id) {//primeste ca param un string care repr
     log_action(hunt_id, "Listed all treasures.");//inregistreaza in jurnal ca toate comorile au fost listate
     return 0;
 }
-
-// Vizualizeaza o comoara după id
 int view_treasure(const char* hunt_id, int treasure_id) {//numele dir in care se afla fisierul treasure,
     //id-ul comorii pe care vrem sa o cautam si sa o vedem
     char treasures_path[MAX_PATH];//buffer in c are constr calea completa catre fisierul de comori
@@ -250,8 +285,6 @@ int view_treasure(const char* hunt_id, int treasure_id) {//numele dir in care se
     close(fd);
     return -1;
 }
-
-// Sterge o comoara după id
 int remove_treasure(const char* hunt_id, int treasure_id) {
     char path[MAX_PATH];//calea completa catre fis de comori
     char temp_path[MAX_PATH];//fis temporar pt a rescrie comorile fara cea stersa
@@ -297,14 +330,14 @@ int remove_treasure(const char* hunt_id, int treasure_id) {
     printf("Treasure %d removed successfully.\n", treasure_id);
     return 0;
 }
-
-// Sterge complet o vanatoare de comori (directorul)
 int remove_hunt(const char* hunt_id) {
+    char symlink_path[MAX_PATH]; 
     char treasures_path[MAX_PATH], log_path[MAX_PATH];//calea completa catre fis cu comori
     build_path(treasures_path, hunt_id, "treasures");//calea completa catre fis de loguri
     build_path(log_path, hunt_id, "logged_hunt");//concateneaza id-ul vanatorii cu numele fis respectiv
     //pt a obt caile complete
-
+    sprintf(symlink_path, "%s-%s", LOG_FILE, hunt_id);
+    
     remove(treasures_path);//sterge fis treasure si logged_hunt de pe disc
     remove(log_path);
 
@@ -317,7 +350,6 @@ int remove_hunt(const char* hunt_id) {
     return 0;
 }
 
-// Functia principala care interpreteaza comenzile din linia de comanda
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         printf("Operations:\n");
@@ -345,6 +377,13 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(argv[1], "remove_hunt") == 0 && argc >= 3) {
         return remove_hunt(argv[2]);
 
+    } else if (strcmp(argv[1], "create_hunt") == 0 && argc >= 3) {
+        if (create_hunt_directory(argv[2]) == 0) {
+            printf("Hunt directory '%s' created.\n", argv[2]);
+    } else {
+            printf("Failed to create hunt directory '%s'.\n", argv[2]);
+        }
+        return 0; 
     } else {
         printf("Unknown command.\n");
         return 1;
