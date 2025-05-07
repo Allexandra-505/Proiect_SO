@@ -7,93 +7,112 @@
 #include <string.h>
 #include <fcntl.h>
 
-pid_t monitor_pid = 0;
+pid_t monitor_pid = 0;//pid_t este folosit pentru a stoca ID-ul unui procces/
+//monitor_pid va retine PID-ul procesului monitor creat de treasure_hub,
+//0 adica nu este pornit
 
-void write_command_to_file(const char *command) {
+void write_command_to_file(const char *command) {//scrie comanda primita ca text,este folosit pt 
+    //a comunica intre treasure_hub si monitor
     int fd = open("command.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    //incearca sa deschida fisierul txt,se deschide pt scriere,daca nu exista se creeaza
+    //daca exista se sterge continutul,are permisuni de scriere si citire pentru proprietar
+    //si de citire pentru grup si utilizatori
     if (fd == -1) {
         perror("Failed to write command to file");
         return;
     }
-    write(fd, command, strlen(command));
+    write(fd, command, strlen(command));//scrie comanda text in fisierul deschis,cu strlen
+    //returnam nr de caractere ce trebuie scrise 
     close(fd);
 }
 
-void sigchld_handler(int sig) {
-    (void)sig;
+void sigchld_handler(int sig) {//functia trateaza semnalul SIGCHLD primit de la proces copil care
+    // s-a terminal,parametrul sig retine nr semnalului SIGCHLD
+    (void)sig;//evitam un warning pentru ca nu folosim aceasta variabila
     int status;
-    pid_t pid = waitpid(-1, &status, WNOHANG);
-    if (pid == monitor_pid) {
-        monitor_pid = 0;
+    pid_t pid = waitpid(-1, &status, WNOHANG);//waitpid este folosit pentru a astepta terminarea 
+    //procces copil ,-1 inseamna ca asteapta orice proces copil,&status va contine codul de 
+    //terminare al procesului,WOHANG spune sa nu blocheze daca niciun copil nu s-a terminat inca 
+    if (pid == monitor_pid) {///verificam daca procesul care s-a terminat este chiar procesul monitor 
+        //pe care l-am pornit mai devreme 
+        monitor_pid = 0;//daca monitor nu s-a terminat resetam la 0 pt ca nu mai e activ
         printf("Monitor has stopped.\n");
     }
 }
 
-void stop_monitor() {
-    if (monitor_pid == 0) {
+void stop_monitor() {//opreste procesul monitor daca e activ
+    if (monitor_pid == 0) {//e oprit
         printf("Monitor is not running.\n");
         return;
     }
 
-    write_command_to_file("stop_monitor");
-    kill(monitor_pid, SIGUSR1);
-    waitpid(monitor_pid, NULL, 0);
-    monitor_pid = 0;
+    write_command_to_file("stop_monitor");//apeleaza functia care scrie textul stop_monitor
+    //in fisierul txt
+    kill(monitor_pid, SIGUSR1);//trimite semnalul SIGUSR1 catre procesul monitor
+    //el are un handler pt SIGUSR1 care va citi fisierul txt si va reactiona
+    waitpid(monitor_pid, NULL, 0);//asteapta ca monitorul sa se termine,blocheaza executia pana cand s-a incheiat
+    monitor_pid = 0;//seteaza la 0 adica nu mai e monitor activ
     printf("Monitor has been stopped.\n");
 }
 
-void start_monitor() {
-    if (monitor_pid != 0) {
+void start_monitor() {//porneste procesul monitor
+    if (monitor_pid != 0) {//monitor_pid contine PID-ul procesului monitor daca e activ
+        //daca e diferit de 0 inseamna ca deja ruleaza
         printf("Monitor is already running (PID: %d).\n", monitor_pid);
         return;
     }
 
-    monitor_pid = fork();
-    if (monitor_pid == 0) {
+    monitor_pid = fork();//creeaza un procces copil,monitor_pid va fi 0
+    if (monitor_pid == 0) {//daca suntem in procesul copill monitor_pid=0,se 
+        //foloseste execl pt a inlocui procesul copil cu programul ./monitor
         execl("./monitor", "monitor", NULL);
-        perror("Failed to launch monitor");
+        perror("Failed to launch monitor");//daca esueaza se afiseaza eroare si copilul iese cu codul 1
         exit(1);
     } else {
         printf("Monitor has been started(PID: %d).\n", monitor_pid);
+        //daca suntem in procesul parinte afisam un mesaj cum ca monitorul a fost pornit si ii afisam PID-ul
     }
 }
 
-void send_command(const char *command) {
-    if (monitor_pid == 0) {
+void send_command(const char *command) {//primeste ca parametru un sir de caractere,
+    //adica comanda pe care utilizatorul vrea sa o btrimita monitorului,nu intoarce nici un rezultat
+    if (monitor_pid == 0) {//daca monitorPID=0 at nu s-a pornit nici un proces monitor
         printf("Monitor is not running. Please start it first.\n");
         return;
     }
-    write_command_to_file(command);
-    kill(monitor_pid, SIGUSR1);
+    write_command_to_file(command);//salveaza comanda in fisierul txt,foloseste functia
+    //write_command_to_file care deschide fisierul il scrie si il inchide
+    kill(monitor_pid, SIGUSR1);//trimite semnalul SIGUSR1 catre procesor monitor,asta declanseaza in
+    // monitor functia sigusr1_handler(),care citeste comanda din fisier si o executa
     printf("Command sent: %s\n", command);
 }
 
 int main() {
-    struct sigaction sa_chld;
-    sa_chld.sa_handler = sigchld_handler;
-    sigemptyset(&sa_chld.sa_mask);
-    sa_chld.sa_flags = SA_RESTART;
-    sigaction(SIGCHLD, &sa_chld, NULL);
+    struct sigaction sa_chld;//se declara o structura pt a configura un handler de semnal
+    sa_chld.sa_handler = sigchld_handler;//la receptia semnalului SIGHLD se apeleaza sigchld_handler
+    sigemptyset(&sa_chld.sa_mask);//nu se blocheaza niciun semnal suplimentar in timpul tratarii
+    sa_chld.sa_flags = SA_RESTART;//daca o functie este blocata este intrerupta si va fi reluata automat
+    sigaction(SIGCHLD, &sa_chld, NULL);//se aplica configuratia pt SIGHLD
 
-    char command[256];
-    printf("Introdu o comanda: \n");
+    char command[256];//buffer pt a citit comenzile introduse de utilizator
+    printf("Please enter a command: \n");
 
-    while (1) {
+    while (1) {//se intra intr-o bucla infinita,interfata de utilizator
         printf("> ");
-        if (fgets(command, sizeof(command), stdin) != NULL) {
-            command[strcspn(command, "\n")] = '\0';
-
-            if (strcmp(command, "start_monitor") == 0) {
+        if (fgets(command, sizeof(command), stdin) != NULL) {//citeste linia de comanda introdusa de utilizator
+            command[strcspn(command, "\n")] = '\0';//elimina caracterul newline la sfarsitul liniei
+            if (strcmp(command, "start_monitor") == 0) {//daca comanda este start_monitor se lanseaza procesul pt functie
                 start_monitor();
-            } else if (strcmp(command, "stop_monitor") == 0) {
+            } else if (strcmp(command, "stop_monitor") == 0) {//daca este stop_monitor se opreste monitor
                 stop_monitor();
-            } else if (strcmp(command, "list_hunts") == 0) {
+            } else if (strcmp(command, "list_hunts") == 0) {//trimite comanda list_hunts catre monitor
                 send_command("list_hunts");
-            } else if (strncmp(command, "list_treasures", 14) == 0) {
+            } else if (strncmp(command, "list_treasures", 14) == 0) {//daca comanda incepe cu list_treasures se trimite exact 
+                //asa cum a fost introdusa ist_treasures <hunt_id>
                 send_command(command);
             } else if (strncmp(command, "view_treasure", 13) == 0) {
                 send_command(command);
-            } else if (strcmp(command, "exit") == 0) {
+            } else if (strcmp(command, "exit") == 0) {//iese din aplicatie doar daca monitorul a fost deja orpit
                 if (monitor_pid != 0) {
                     printf("Please stop the monitor before exiting..\n");
                 } else {
