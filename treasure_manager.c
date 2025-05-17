@@ -166,7 +166,7 @@ int add_treasure(const char* hunt_id) {
     printf("Enter longitude: ");
     scanf("%lf", &treasure.longitude);
 
-    printf("Enter clue (max 1023 chars): ");
+    printf("Enter clue: ");
     getchar(); // consume newline
     fgets(treasure.clue, MAX_CLUE, stdin);
     if (treasure.clue[strlen(treasure.clue) - 1] == '\n') {
